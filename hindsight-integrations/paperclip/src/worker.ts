@@ -342,7 +342,15 @@ const plugin = definePlugin({
           );
           const response = await client.recall(bankId, query, config.recallBudget ?? "mid");
           const memories = formatMemories(response.results);
-          return { content: memories || "No relevant memories found." };
+          return {
+            content: memories || "No relevant memories found.",
+            data: response.results.map((m) => ({
+              text: m.text,
+              documentId: m.document_id ?? null,
+              issueId: m.metadata?.issueId ?? null,
+              commentId: m.metadata?.commentId ?? null,
+            })),
+          };
         } catch (err) {
           return { content: `Memory recall failed: ${String(err)}` };
         }

@@ -7,6 +7,10 @@
 export interface Memory {
   text: string;
   type?: string;
+  /** Paperclip comment id — set as `document_id` at retain time. */
+  document_id?: string;
+  /** Retain-time attribution (agentId, companyId, issueId, commentId). */
+  metadata?: Record<string, string>;
 }
 
 export interface RecallResponse {
@@ -100,5 +104,26 @@ export class HindsightClient {
 
 export function formatMemories(memories: Memory[]): string {
   if (memories.length === 0) return "";
-  return memories.map((m) => `- ${m.text}`).join("\n");
+  return memories.map((m) => formatMemory(m)).join("\n");
+}
+
+/**
+ * Render a single memory with a citable source when one is available.
+ *
+ * The plugin retains the Paperclip comment id as `document_id` and repeats it,
+ * together with the issue id, in `metadata`. We surface the tightest citation we
+ * have so the "cite ta source" rule becomes verifiable from the recall output.
+ */
+function formatMemory(m: Memory): string {
+  const source = memorySource(m);
+  return source ? `- ${m.text} [source: ${source}]` : `- ${m.text}`;
+}
+
+function memorySource(m: Memory): string | undefined {
+  const issueId = m.metadata?.issueId;
+  const commentId = m.metadata?.commentId ?? m.document_id;
+  if (issueId && commentId) return `${issueId}#${commentId}`;
+  if (commentId) return `comment:${commentId}`;
+  if (issueId) return `issue:${issueId}`;
+  return undefined;
 }
