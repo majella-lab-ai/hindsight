@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestHarness } from "@paperclipai/plugin-sdk";
 import manifest from "../src/manifest.js";
 import plugin from "../src/worker.js";
-import { DEFAULT_REQUEST_TIMEOUT_MS, HindsightClient } from "../src/client.js";
+import { DEFAULT_REQUEST_TIMEOUT_MS, HindsightClient, formatMemories } from "../src/client.js";
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers
@@ -467,6 +467,36 @@ describe("issue.comment.created", () => {
 });
 
 // ---------------------------------------------------------------------------
+// formatMemories — citable source rendering
+// ---------------------------------------------------------------------------
+
+describe("formatMemories", () => {
+  it("renders plain text when no source metadata is present", () => {
+    expect(formatMemories([{ text: "User prefers TypeScript" }])).toBe(
+      "- User prefers TypeScript"
+    );
+  });
+
+  it("renders the issue and comment id when both are present", () => {
+    expect(
+      formatMemories([
+        { text: "Preuve avant affirmation", metadata: { issueId: "iss-42", commentId: "cmt-1" } },
+      ])
+    ).toBe("- Preuve avant affirmation [source: iss-42#cmt-1]");
+  });
+
+  it("falls back to document_id (comment id) when metadata lacks it", () => {
+    expect(formatMemories([{ text: "Leçon apprise", document_id: "cmt-9" }])).toBe(
+      "- Leçon apprise [source: comment:cmt-9]"
+    );
+  });
+
+  it("renders an empty string for an empty list", () => {
+    expect(formatMemories([])).toBe("");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // hindsight_recall tool
 // ---------------------------------------------------------------------------
 
@@ -557,6 +587,39 @@ describe("hindsight_recall tool", () => {
     );
 
     expect((result as { content: string }).content).toContain("Python specialist");
+  });
+
+  it("surfaces a citable source (issue/comment) in content and structured data", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch([
+        {
+          url: /recall/,
+          body: {
+            results: [
+              {
+                text: "Preuve avant affirmation",
+                document_id: "cmt-1",
+                metadata: { issueId: "iss-42", commentId: "cmt-1", companyId: "co-1", agentId: "ag-1" },
+              },
+            ],
+          },
+        },
+      ])
+    );
+    const harness = buildHarness();
+    await setupPlugin(harness);
+
+    const result = (await harness.executeTool(
+      "hindsight_recall",
+      { query: "preuve" },
+      { agentId: "ag-1", runId: "run-src", companyId: "co-1", projectId: "proj-1" }
+    )) as { content: string; data: Array<{ documentId: string | null; issueId: string | null; commentId: string | null }> };
+
+    expect(result.content).toContain("[source: iss-42#cmt-1]");
+    expect(result.data).toEqual([
+      { text: "Preuve avant affirmation", documentId: "cmt-1", issueId: "iss-42", commentId: "cmt-1" },
+    ]);
   });
 
   it("aborts the request after requestTimeoutMs", async () => {
